@@ -1,0 +1,19 @@
+# ESP-IDF build
+build/
+sdkconfig
+sdkconfig.old
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Python
+__pycache__/
+*.pyc
+
+# VSCode
+.vscode/
+
+# Logs
+*.log
