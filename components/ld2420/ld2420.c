@@ -1,0 +1,207 @@
+#include "ld2420.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+
+
+static const char *TAG = "LD2420";
+
+static ld2420_config_t s_cfg;
+static ld2420_state_t  s_state;
+static SemaphoreHandle_t s_state_mutex;
+
+static int64_t last_presence_ts = 0;
+static int64_t last_absence_ts = 0;
+static int64_t last_motion_ts = 0;
+
+static uint16_t cfg_min_dist = 0;
+static uint16_t cfg_max_dist = 600;
+static uint8_t  cfg_sensitivity = 5;
+
+
+static void ld2420_gpio_init(void);
+static void ld2420_uart_init(void);
+static void ld2420_task(void *arg);
+
+esp_err_t ld2420_init(const ld2420_config_t *cfg)
+{
+    if (!cfg) return ESP_ERR_INVALID_ARG;
+
+    s_cfg = *cfg;
+
+    s_state_mutex = xSemaphoreCreateMutex();
+    if (!s_state_mutex) {
+        return ESP_FAIL;
+    }
+
+    ld2420_gpio_init();
+    ld2420_uart_init();
+    vTaskDelay(pdMS_TO_TICKS(50));
+    ld2420_exit_engineering_mode();
+
+    ESP_LOGI(TAG, "LD2420 initialized (OT1=%d, OT2=%d, UART=%d TX=%d baud=%d)",
+             s_cfg.pin_ot1, s_cfg.pin_ot2, s_cfg.uart_num, s_cfg.uart_tx, s_cfg.uart_baud);
+
+    return ESP_OK;
+}
+
+void ld2420_task_start(UBaseType_t priority, uint32_t stack_size)
+{
+    xTaskCreate(ld2420_task, "ld2420_task", stack_size, NULL, priority, NULL);
+}
+
+/* GPIO: OT1 / OT2 come input */
+static void ld2420_gpio_init(void)
+{
+    gpio_config_t io_conf = {
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+
+    if (s_cfg.pin_ot1 >= 0) {
+        io_conf.pin_bit_mask = 1ULL << s_cfg.pin_ot1;
+        gpio_config(&io_conf);
+    }
+
+    if (s_cfg.pin_ot2 >= 0) {
+        io_conf.pin_bit_mask = 1ULL << s_cfg.pin_ot2;
+        gpio_config(&io_conf);
+    }
+}
+
+/* UART: solo TX per comandi verso LD2420 (RX del modulo) */
+static void ld2420_uart_init(void)
+{
+    uart_config_t uart_config = {
+        .baud_rate = s_cfg.uart_baud,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_APB,
+    };
+
+    uart_param_config(s_cfg.uart_num, &uart_config);
+    uart_set_pin(s_cfg.uart_num, s_cfg.uart_tx, UART_PIN_NO_CHANGE,
+                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_driver_install(s_cfg.uart_num, 1, 0, 0, NULL, 0);
+    ESP_LOGI(TAG, "LD2420 UART initialized");
+}
+
+/* Comando: uscita da engineering mode */
+void ld2420_exit_engineering_mode(void)
+{
+    uint8_t cmd[] = {0xFD,0xFC,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+    uart_write_bytes(s_cfg.uart_num, (const char*)cmd, sizeof(cmd));
+    ESP_LOGI(TAG, "Sent: exit engineering mode");
+}
+
+/* Task: legge OT1/OT2 e aggiorna stato */
+static void ld2420_task(void *arg)
+{
+    bool last_ot1 = false;
+    bool last_ot2 = false;
+
+    while (1) {
+        bool ot1 = false;
+        bool ot2 = false;
+
+        if (s_cfg.pin_ot1 >= 0) {
+            ot1 = gpio_get_level(s_cfg.pin_ot1);
+        }
+        if (s_cfg.pin_ot2 >= 0) {
+            ot2 = gpio_get_level(s_cfg.pin_ot2);
+        }
+
+        bool presence = ot1 || ot2;
+        bool motion   = ot2;
+        bool static_p = ot1;
+
+        if (xSemaphoreTake(s_state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            s_state.presence        = presence;
+            s_state.motion          = motion;
+            s_state.static_presence = static_p;
+            xSemaphoreGive(s_state_mutex);
+        }
+
+        /* log solo su cambiamento per non spammare */
+        if (ot2 && !last_ot2) {
+            ESP_LOGI(TAG, "OT2 presence detected");
+        }
+        if (!ot2 && last_ot2) {
+            ESP_LOGI(TAG, "OT2 cleared");
+        }
+        if (s_cfg.pin_ot1 >= 0) {
+            if (ot1 && !last_ot1) {
+                ESP_LOGI(TAG, "OT1 static presence detected");
+            }
+            if (!ot1 && last_ot1) {
+                ESP_LOGI(TAG, "OT1 static cleared");
+            }
+        }
+
+        last_ot1 = ot1;
+        last_ot2 = ot2;
+
+        int64_t now = esp_timer_get_time(); // microsecondi
+
+        if (presence) {
+            last_presence_ts = now;
+        } else {
+            last_absence_ts = now;
+        }
+
+        if (motion) {
+            last_motion_ts = now;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50)); // 20 Hz
+    }
+}
+
+ld2420_state_t ld2420_get_state(void)
+{
+    ld2420_state_t copy;
+    if (xSemaphoreTake(s_state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        copy = s_state;
+        xSemaphoreGive(s_state_mutex);
+    } else {
+        copy = s_state;
+    }
+    return copy;
+}
+
+uint32_t ld2420_ms_since_presence() {
+    int64_t now = esp_timer_get_time();
+    return (uint32_t)((now - last_presence_ts) / 1000);
+}
+
+uint32_t ld2420_ms_since_absence() {
+    int64_t now = esp_timer_get_time();
+    return (uint32_t)((now - last_absence_ts) / 1000);
+}
+
+uint32_t ld2420_ms_since_motion() {
+    int64_t now = esp_timer_get_time();
+    return (uint32_t)((now - last_motion_ts) / 1000);
+}
+
+uint16_t ld2420_get_min_distance() {
+    return cfg_min_dist;
+}
+
+uint16_t ld2420_get_max_distance() {
+    return cfg_max_dist;
+}
+
+uint8_t ld2420_get_sensitivity() {
+    return cfg_sensitivity;
+}
+
+uint32_t ld2420_get_uptime_ms() {
+    return (uint32_t)(esp_timer_get_time() / 1000);
+}
