@@ -150,6 +150,7 @@ static esp_err_t data_handler(httpd_req_t *req) {
     } else {
         strncpy(ts, "--:--:--", sizeof(ts));
         memset(&st, 0, sizeof(st));
+        d_min = d_max = 0;
     }
 
     /* Termostato */
@@ -188,11 +189,11 @@ static esp_err_t data_handler(httpd_req_t *req) {
         "\"min_dist\":%lu,"
         "\"max_dist\":%lu,"
         "\"uptime_s\":%lld,"
-        "\"wifi\":{\"rssi\":%d, \"label\":\"%s\", \"icon\":\"%s\"}"
+        "\"wifi\":{\"rssi\":%d, \"label\":\"%s\", \"icon\":\"%s\",\"channel\":\"%d\"}"
         "}",
         ts, st.presence, d_min, d_max,
         (long long)(esp_timer_get_time() / 1000000LL),
-        rssi, rssi_label, rssi_icon);
+        rssi, rssi_label, rssi_icon, channel);
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
