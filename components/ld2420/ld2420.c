@@ -102,7 +102,7 @@ static void ld2420_uart_init(void)
     uart_param_config(s_cfg.uart_num, &uart_config);
     uart_set_pin(s_cfg.uart_num, s_cfg.uart_tx, UART_PIN_NO_CHANGE,
                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(s_cfg.uart_num, 1, 0, 0, NULL, 0);
+    uart_driver_install(s_cfg.uart_num, 1024, 0, 0, NULL, 0);
     ESP_LOGI(TAG, "LD2420 UART initialized");
 }
 
@@ -113,6 +113,14 @@ void ld2420_exit_engineering_mode(void)
     uart_write_bytes(s_cfg.uart_num, (const char*)cmd, sizeof(cmd));
     ESP_LOGI(TAG, "Sent: exit engineering mode");
 }
+
+void ld2420_enter_engineering_mode(void)
+{
+    uint8_t cmd[] = {0xFD,0xFC,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+    uart_write_bytes(s_cfg.uart_num, (const char*)cmd, sizeof(cmd));
+    ESP_LOGI(TAG, "Sent: enter engineering mode");
+}
+
 
 /* Task: legge OT1/OT2 e aggiorna stato */
 static void ld2420_task(void *arg)
@@ -246,3 +254,74 @@ uint32_t ld2420_ms_since_dynamic_presence() {
 uint32_t ld2420_ms_since_state_change() {
     return (uint32_t)((esp_timer_get_time() - last_change_ts) / 1000);
 }
+
+esp_err_t ld2420_set_range(uint16_t min_cm, uint16_t max_cm)
+{
+    uint8_t cmd[12] = {0xFD,0xFC,0x05,0x00};
+    cmd[4] = min_cm & 0xFF;
+    cmd[5] = (min_cm >> 8) & 0xFF;
+    cmd[6] = max_cm & 0xFF;
+    cmd[7] = (max_cm >> 8) & 0xFF;
+
+    uart_write_bytes(s_cfg.uart_num, (const char*)cmd, sizeof(cmd));
+    ESP_LOGI(TAG, "Set range: %u–%u cm", min_cm, max_cm);
+
+    cfg_min_dist = min_cm;
+    cfg_max_dist = max_cm;
+    return ESP_OK;
+}
+
+esp_err_t ld2420_set_motion_sensitivity(uint8_t sens)
+{
+    uint8_t cmd[12] = {0xFD,0xFC,0x07,0x00, sens, 0,0,0,0,0,0,0};
+    uart_write_bytes(s_cfg.uart_num, (const char*)cmd, sizeof(cmd));
+    ESP_LOGI(TAG, "Set motion sensitivity: %u", sens);
+    return ESP_OK;
+}
+
+esp_err_t ld2420_set_static_sensitivity(uint8_t sens)
+{
+    uint8_t cmd[12] = {0xFD,0xFC,0x08,0x00, sens, 0,0,0,0,0,0,0};
+    uart_write_bytes(s_cfg.uart_num, (const char*)cmd, sizeof(cmd));
+    ESP_LOGI(TAG, "Set static sensitivity: %u", sens);
+    return ESP_OK;
+}
+
+esp_err_t ld2420_apply_default_config(void)
+{
+    ESP_LOGI(TAG, "Applying LD2420 default config...");
+
+    ld2420_enter_engineering_mode();
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    // Range consigliato per evitare falsi positivi
+    uint16_t min_dist = 50;
+    uint16_t max_dist = 400;
+
+    if (ld2420_set_range(min_dist, max_dist) != ESP_OK) {
+        ESP_LOGE(TAG, "Error setting range");
+        return ESP_FAIL;
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    // Sensibilità consigliate
+    if (ld2420_set_motion_sensitivity(3) != ESP_OK) {
+        ESP_LOGE(TAG, "Error setting motion sensitivity");
+        return ESP_FAIL;
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    if (ld2420_set_static_sensitivity(2) != ESP_OK) {
+        ESP_LOGE(TAG, "Error setting static sensitivity");
+        return ESP_FAIL;
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    ld2420_exit_engineering_mode();
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    ESP_LOGI(TAG, "LD2420 default config applied.");
+    return ESP_OK;
+}
+
+

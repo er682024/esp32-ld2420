@@ -1,8 +1,10 @@
 #include <inttypes.h>
+#include <string.h>
 
 #include "ld2420.h"
 #include "esp_log.h"
 #include "esp_sntp.h"
+#include "esp_wifi.h"
 #include "time.h"
 #include "wifi.h"
 #include "http_server.h"
@@ -13,26 +15,36 @@ static const char *TAG = "MAIN";
 
 void ld2420_print_status_line(void);
 void time_sync_init(void);
-void get_time_str(char *buf, size_t len);
+const char* get_build_date(void);
+
+const char* get_build_date(void)
+{
+    static char build_date[32] = {0};
+    if (build_date[0] == 0) {
+        snprintf(build_date, sizeof(build_date), "%s %s", __DATE__, __TIME__);
+    }
+    return build_date;
+}
 
 void app_main(void)
 {
     ld2420_config_t cfg = {
-        .pin_ot1   = GPIO_NUM_16,      // o -1 se non collegato
+        .pin_ot1   = GPIO_NUM_16,
         .pin_ot2   = GPIO_NUM_4,
         .uart_num  = UART_NUM_2,
-        .uart_tx   = GPIO_NUM_17,      // ESP32 TX2 -> LD2420 RX
+        .uart_tx   = GPIO_NUM_17,
         .uart_baud = 256000,
     };
 
     char ssid[64]     = {0};
     char password[64] = {0};
 
+    ESP_LOGI(TAG, "Firmware compilato: %s", get_build_date());
     wifi_init();
-    
+
     if (wifi_load_credentials(ssid, sizeof(ssid), password, sizeof(password))) {
         ESP_LOGI(TAG, "Credenziali trovate: SSID='%s'", ssid);
-        wifi_connect(ssid, password);  // loop interno — ritorna solo se connesso
+        wifi_connect(ssid, password);
     } else {
         ESP_LOGW(TAG, "Nessuna credenziale salvata");
     }
@@ -41,11 +53,6 @@ void app_main(void)
         time_sync_init();
         http_server_start();
     } else {
-        /* Nessuna credenziale o connessione impossibile:
-           avvia l'AP di configurazione e resta in attesa.
-           Il reboot avverrà dopo il salvataggio delle credenziali
-           dall'HTTP handler. Il sensore non viene letto in questa
-           modalità (non c'è dove inviare i dati). */
         wifi_start_ap();
         http_server_start();
         while (1) vTaskDelay(pdMS_TO_TICKS(1000));
@@ -53,20 +60,63 @@ void app_main(void)
 
     ld2420_init(&cfg);
     vTaskDelay(pdMS_TO_TICKS(200));
+    ld2420_apply_default_config();
+    vTaskDelay(pdMS_TO_TICKS(200));
     ld2420_exit_engineering_mode();
     vTaskDelay(pdMS_TO_TICKS(200));
-
     ld2420_task_start(5, 4096);
 
     while (1) {
-        ld2420_print_status_line();
+        // ld2420_print_status_line();
+        putchar('.');
+        fflush(stdout);
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
+/* ------------------------------------------------------------------
+ * ld2420_print_status_line
+ * Stampa su seriale lo stato del sensore + informazioni WiFi:
+ *   SSID, RSSI (dBm), qualità segnale (%), etichetta qualità,
+ *   canale, BSSID.
+ * ------------------------------------------------------------------ */
 void ld2420_print_status_line(void)
 {
     ld2420_state_t s = ld2420_get_state();
+
+    /* --- Lettura info WiFi --- */
+    char    wifi_ssid[33]  = "--";
+    char    wifi_bssid[18] = "--";
+    int8_t  wifi_rssi      = 0;
+    uint8_t wifi_channel   = 0;
+    int     wifi_quality   = 0;   /* 0-100 % */
+    const char *wifi_label = "N/A";
+
+    wifi_ap_record_t ap_info = {0};
+    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+        strncpy(wifi_ssid, (char *)ap_info.ssid, sizeof(wifi_ssid) - 1);
+        wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+
+        snprintf(wifi_bssid, sizeof(wifi_bssid),
+                 "%02X:%02X:%02X:%02X:%02X:%02X",
+                 ap_info.bssid[0], ap_info.bssid[1], ap_info.bssid[2],
+                 ap_info.bssid[3], ap_info.bssid[4], ap_info.bssid[5]);
+
+        wifi_rssi    = ap_info.rssi;
+        wifi_channel = ap_info.primary;
+
+        /* RSSI → percentuale: -100 dBm = 0%, -40 dBm = 100% */
+        int q = (wifi_rssi + 100) * 100 / 60;
+        if (q < 0)   q = 0;
+        if (q > 100) q = 100;
+        wifi_quality = q;
+
+        if      (wifi_rssi >= -50) wifi_label = "Ottimo";
+        else if (wifi_rssi >= -65) wifi_label = "Buono";
+        else if (wifi_rssi >= -75) wifi_label = "Discreto";
+        else if (wifi_rssi >= -85) wifi_label = "Scarso";
+        else                       wifi_label = "Pessimo";
+    }
 
     printf(
         "uptime=%" PRIu32 "ms "
@@ -79,8 +129,13 @@ void ld2420_print_status_line(void)
         "change_ms=%" PRIu32 " "
         "min=%u "
         "max=%u "
-        "sens=%u\n",
-
+        "sens=%u "
+        "wifi_ssid=%s "
+        "wifi_rssi=%d "
+        "wifi_quality=%d%% "
+        "wifi_label=%s "
+        "wifi_ch=%u "
+        "wifi_bssid=%s\n",
         ld2420_get_uptime_ms(),
         s.presence,
         ld2420_ms_since_presence(),
@@ -91,7 +146,13 @@ void ld2420_print_status_line(void)
         ld2420_ms_since_state_change(),
         ld2420_get_min_distance(),
         ld2420_get_max_distance(),
-        ld2420_get_sensitivity()
+        ld2420_get_sensitivity(),
+        wifi_ssid,
+        (int)wifi_rssi,
+        wifi_quality,
+        wifi_label,
+        wifi_channel,
+        wifi_bssid
     );
 }
 
@@ -105,10 +166,6 @@ void time_sync_init(void) {
     esp_sntp_setservername(2, "time.google.com");
     esp_sntp_init();
 
-    /* Attesa sincronizzazione: max 60 tentativi × 1s = 60s.
-       Se scade, ri-inizializza SNTP e riprova indefinitamente
-       ogni 30s — l'ora verrà sincronizzata non appena il DNS
-       sarà raggiungibile.                                      */
     int retry = 0;
     const int MAX_RETRY = 60;
     while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET) {
@@ -125,10 +182,4 @@ void time_sync_init(void) {
     ESP_LOGI("NTP", "Ora sincronizzata");
 }
 
-void get_time_str(char *buf, size_t len) {
-    time_t    now;
-    struct tm timeinfo;
-    time(&now);
-    localtime_r(&now, &timeinfo);
-    strftime(buf, len, "%d/%m/%Y %H:%M:%S", &timeinfo);
-}
+

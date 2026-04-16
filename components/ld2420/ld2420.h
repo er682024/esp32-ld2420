@@ -17,6 +17,8 @@ typedef struct {
     bool presence;           // presenza complessiva
     bool motion;             // movimento (OT2)
     bool static_presence;    // presenza statica (OT1)
+    uint32_t distance_min;
+    uint32_t distance_max;
 } ld2420_state_t;
 
 esp_err_t ld2420_init(const ld2420_config_t *cfg);
@@ -27,6 +29,8 @@ ld2420_state_t ld2420_get_state(void);
 
 /* Comandi base via UART (per ora solo exit engineering) */
 void ld2420_exit_engineering_mode(void);
+esp_err_t ld2420_apply_default_config(void);
+
 
 uint32_t ld2420_ms_since_presence();
 uint32_t ld2420_ms_since_absence();
