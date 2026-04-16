@@ -31,9 +31,13 @@ void ld2420_exit_engineering_mode(void);
 uint32_t ld2420_ms_since_presence();
 uint32_t ld2420_ms_since_absence();
 uint32_t ld2420_ms_since_motion();
+uint32_t ld2420_ms_since_static_presence(void);
+uint32_t ld2420_ms_since_dynamic_presence(void);
+uint32_t ld2420_ms_since_state_change(void);
 
 uint16_t ld2420_get_min_distance();
 uint16_t ld2420_get_max_distance();
 uint8_t  ld2420_get_sensitivity();
 uint32_t ld2420_get_uptime_ms();
+
 

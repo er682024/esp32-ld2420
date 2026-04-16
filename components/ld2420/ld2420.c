@@ -16,6 +16,11 @@ static int64_t last_presence_ts = 0;
 static int64_t last_absence_ts = 0;
 static int64_t last_motion_ts = 0;
 
+static int64_t last_static_ts = 0;     // OT1
+static int64_t last_dynamic_ts = 0;    // OT2
+static int64_t last_change_ts = 0;     // qualsiasi cambio presenza
+static bool last_presence_state = false;
+
 static uint16_t cfg_min_dist = 0;
 static uint16_t cfg_max_dist = 600;
 static uint8_t  cfg_sensitivity = 5;
@@ -43,6 +48,15 @@ esp_err_t ld2420_init(const ld2420_config_t *cfg)
 
     ESP_LOGI(TAG, "LD2420 initialized (OT1=%d, OT2=%d, UART=%d TX=%d baud=%d)",
              s_cfg.pin_ot1, s_cfg.pin_ot2, s_cfg.uart_num, s_cfg.uart_tx, s_cfg.uart_baud);
+
+    int64_t now = esp_timer_get_time();
+    last_presence_ts = now;
+    last_absence_ts  = now;
+    last_motion_ts   = now;
+    last_static_ts   = now;
+    last_dynamic_ts  = now;
+    last_change_ts   = now;
+    last_presence_state = false;
 
     return ESP_OK;
 }
@@ -155,9 +169,24 @@ static void ld2420_task(void *arg)
             last_absence_ts = now;
         }
 
+        if (presence != last_presence_state) {
+            last_change_ts = now;
+        }
+        last_presence_state = presence;
+
         if (motion) {
             last_motion_ts = now;
         }
+
+        if (ot1) {
+            last_static_ts = now;
+        }
+
+        if (ot2) {
+            last_dynamic_ts = now;
+        }
+
+
 
         vTaskDelay(pdMS_TO_TICKS(50)); // 20 Hz
     }
@@ -204,4 +233,16 @@ uint8_t ld2420_get_sensitivity() {
 
 uint32_t ld2420_get_uptime_ms() {
     return (uint32_t)(esp_timer_get_time() / 1000);
+}
+
+uint32_t ld2420_ms_since_static_presence() {
+    return (uint32_t)((esp_timer_get_time() - last_static_ts) / 1000);
+}
+
+uint32_t ld2420_ms_since_dynamic_presence() {
+    return (uint32_t)((esp_timer_get_time() - last_dynamic_ts) / 1000);
+}
+
+uint32_t ld2420_ms_since_state_change() {
+    return (uint32_t)((esp_timer_get_time() - last_change_ts) / 1000);
 }

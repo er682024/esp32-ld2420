@@ -1,3 +1,19 @@
-idf_component_register(SRCS "main.c"
-                       INCLUDE_DIRS "."
-                       REQUIRES ld2420)
+idf_component_register(
+    SRCS
+        "main.c"
+        "http_server.c"
+        "wifi.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        esp_wifi
+        esp_netif
+        esp_event
+        nvs_flash
+        esp_http_server
+        ld2420
+    PRIV_REQUIRES
+        app_update
+        esp_timer
+        mbedtls
+)
