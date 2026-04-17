@@ -28,9 +28,10 @@ void      ld2420_task_start(UBaseType_t priority, uint32_t stack_size);
 ld2420_state_t ld2420_get_state(void);
 
 /* Comandi base via UART (per ora solo exit engineering) */
+void ld2420_enter_engineering_mode(void);
 void ld2420_exit_engineering_mode(void);
 esp_err_t ld2420_apply_default_config(void);
-
+esp_err_t ld2420_set_range(uint16_t min_cm, uint16_t max_cm);
 
 uint32_t ld2420_ms_since_presence();
 uint32_t ld2420_ms_since_absence();

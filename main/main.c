@@ -43,11 +43,11 @@ void app_main(void)
     ESP_LOGI(TAG, "Firmware compilato: %s", get_build_date());
 
     ld2420_init(&cfg);
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(500));
     ld2420_apply_default_config();
-    vTaskDelay(pdMS_TO_TICKS(200));
-    ld2420_exit_engineering_mode();
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(500));
+    // ld2420_exit_engineering_mode();
+    // vTaskDelay(pdMS_TO_TICKS(200));
     ld2420_task_start(5, 4096);
     vTaskDelay(pdMS_TO_TICKS(200));
 

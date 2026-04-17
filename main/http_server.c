@@ -42,6 +42,8 @@ static uint32_t      s_max_dist   = 0;
 static uint64_t total_presence_ms = 0;
 static uint64_t total_absence_ms  = 0;
 static uint32_t last_update_ms    = 0;
+static uint64_t total_moto_ms = 0;
+static uint64_t total_static_ms = 0;
 
 
 void http_server_update_data(const char *time_str, ld2420_state_t state,
@@ -193,6 +195,12 @@ static esp_err_t data_handler(httpd_req_t *req) {
             total_presence_ms += delta;
         else
             total_absence_ms += delta;
+        
+        if (st.motion)
+            total_moto_ms += delta;
+        
+        if (st.static_presence)
+            total_static_ms += delta;
     }
 
     snprintf(json, sizeof(json),
@@ -209,6 +217,9 @@ static esp_err_t data_handler(httpd_req_t *req) {
         "\"static_ms\":%" PRIu32 ","
         "\"dynamic_ms\":%" PRIu32 ","
         "\"change_ms\":%" PRIu32 ","
+
+        "\"total_moto_ms\":%" PRIu64 ","
+        "\"total_static_ms\":%" PRIu64 ","
 
         "\"presence_total_ms\":%" PRIu64 ","
         "\"absence_total_ms\":%" PRIu64 ","
@@ -241,6 +252,9 @@ static esp_err_t data_handler(httpd_req_t *req) {
         ms_static,
         ms_dynamic,
         ms_change,
+
+        total_moto_ms,
+        total_static_ms,
 
         total_presence_ms,
         total_absence_ms,
@@ -364,6 +378,8 @@ static const char *HTML_MONITOR =
 "    <div class='d-item'><span class='d-val' id='v-mot-ms'>--</span><span class='d-lbl'>Da moto</span></div>"
 "    <div class='d-item'><span class='d-val' id='v-stat-ms'>--</span><span class='d-lbl'>Da statica</span></div>"
 "    <div class='d-item'><span class='d-val' id='v-chg-ms'>--</span><span class='d-lbl'>Da cambio</span></div>"
+"    <div class='d-item'><span class='d-val' id='v-moto-tot'>--</span><span class='d-lbl'>Motion Totale</span></div>"
+"    <div class='d-item'><span class='d-val' id='v-static-tot'>--</span><span class='d-lbl'>Static Totale</span></div>"
 "    <div class='d-item'><span class='d-val' id='v-pres-tot'>--</span><span class='d-lbl'>Presenza Totale</span></div>"
 "    <div class='d-item'><span class='d-val' id='v-pres-pct'>--</span><span class='d-lbl'>% Presenza Totale</span></div>"
 "  </div>"
@@ -466,6 +482,12 @@ static const char *HTML_MONITOR =
 "    setPill('pill-static',d.static_presence, '🦱 Statica',   '🦱 Statica');"
 "   if (d.presence_pct !== undefined) {"
 "       document.getElementById('v-pres-pct').textContent = d.presence_pct.toFixed(1) + '%';"
+"   }"
+"   if (d.total_moto_ms !== undefined) {"
+"       document.getElementById('v-moto-tot').textContent = fmtMs(d.total_moto_ms);"
+"   }"
+"   if (d.total_static_ms !== undefined) {"
+"       document.getElementById('v-static-tot').textContent = fmtMs(d.total_static_ms);"
 "   }"
 "   if (d.presence_total_ms !== undefined) {"
 "       document.getElementById('v-pres-tot').textContent = fmtMs(d.presence_total_ms);"
@@ -800,17 +822,12 @@ static esp_err_t ota_upload_handler(httpd_req_t *req) {
     }
 
     esp_app_desc_t new_app_info;
-
     if (esp_ota_get_partition_description(update_partition, &new_app_info) == ESP_OK) {
-        const esp_app_desc_t *running = esp_app_get_description();
-
-        if (strcmp(new_app_info.version, running->version) <= 0) {
-            ESP_LOGW(TAG, "Firmware vecchio o uguale → rifiutato");
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Versione non valida");
-            return ESP_FAIL;
-        }
-
-        ESP_LOGI(TAG, "Nuovo firmware: %s", new_app_info.version);
+        ESP_LOGI(TAG, "Nuovo firmware: v%s, build: %s %s",
+                new_app_info.version,
+                new_app_info.date,
+                new_app_info.time);
+        // Nessun blocco — accetta qualsiasi firmware valido
     } else {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Firmware non valido");
         return ESP_FAIL;

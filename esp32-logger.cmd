@@ -1,0 +1,1 @@
+powershell.exe -ExecutionPolicy unrestricted ".\esp32-logger.ps1"
