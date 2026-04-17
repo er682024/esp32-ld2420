@@ -3,6 +3,7 @@
 
 #include "ld2420.h"
 #include "esp_log.h"
+#include "esp_ota_ops.h"
 #include "esp_sntp.h"
 #include "esp_wifi.h"
 #include "time.h"
@@ -40,6 +41,16 @@ void app_main(void)
     char password[64] = {0};
 
     ESP_LOGI(TAG, "Firmware compilato: %s", get_build_date());
+
+    ld2420_init(&cfg);
+    vTaskDelay(pdMS_TO_TICKS(200));
+    ld2420_apply_default_config();
+    vTaskDelay(pdMS_TO_TICKS(200));
+    ld2420_exit_engineering_mode();
+    vTaskDelay(pdMS_TO_TICKS(200));
+    ld2420_task_start(5, 4096);
+    vTaskDelay(pdMS_TO_TICKS(200));
+
     wifi_init();
 
     if (wifi_load_credentials(ssid, sizeof(ssid), password, sizeof(password))) {
@@ -51,20 +62,17 @@ void app_main(void)
 
     if (wifi_connected) {
         time_sync_init();
-        http_server_start();
+        if (http_server_start())
+        {
+            vTaskDelay(pdMS_TO_TICKS(5000));
+            ESP_LOGI(TAG, "Sistema stabile → confermo OTA");
+            // esp_ota_mark_app_valid_cancel_rollback();
+        }
     } else {
         wifi_start_ap();
         http_server_start();
         while (1) vTaskDelay(pdMS_TO_TICKS(1000));
     }
-
-    ld2420_init(&cfg);
-    vTaskDelay(pdMS_TO_TICKS(200));
-    ld2420_apply_default_config();
-    vTaskDelay(pdMS_TO_TICKS(200));
-    ld2420_exit_engineering_mode();
-    vTaskDelay(pdMS_TO_TICKS(200));
-    ld2420_task_start(5, 4096);
 
     while (1) {
         // ld2420_print_status_line();

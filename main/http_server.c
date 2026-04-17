@@ -1,4 +1,5 @@
 // #include "esp_app_format.h"
+#include "esp_app_desc.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
@@ -767,10 +768,15 @@ static esp_err_t ota_upload_handler(httpd_req_t *req) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA begin fallito");
         return ESP_FAIL;
     }
-    char buf[1024];
+    char buf[4096];
     int received = 0, remaining = req->content_len;
     while (remaining > 0) {
         int len = httpd_req_recv(req, buf, MIN(remaining, (int)sizeof(buf)));
+
+        if (len == 0) {
+            ESP_LOGE(TAG, "Connessione chiusa");
+            break;
+        }
         if (len < 0) {
             if (len == HTTPD_SOCK_ERR_TIMEOUT) continue;
             esp_ota_abort(ota_handle);
@@ -792,13 +798,31 @@ static esp_err_t ota_upload_handler(httpd_req_t *req) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA end fallito");
         return ESP_FAIL;
     }
+
+    esp_app_desc_t new_app_info;
+
+    if (esp_ota_get_partition_description(update_partition, &new_app_info) == ESP_OK) {
+        const esp_app_desc_t *running = esp_app_get_description();
+
+        if (strcmp(new_app_info.version, running->version) <= 0) {
+            ESP_LOGW(TAG, "Firmware vecchio o uguale → rifiutato");
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Versione non valida");
+            return ESP_FAIL;
+        }
+
+        ESP_LOGI(TAG, "Nuovo firmware: %s", new_app_info.version);
+    } else {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Firmware non valido");
+        return ESP_FAIL;
+    }
+
     err = esp_ota_set_boot_partition(update_partition);
     if (err != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Set boot partition fallito");
         return ESP_FAIL;
     }
     ESP_LOGI(TAG, "OTA completato! Riavvio...");
-    httpd_resp_sendstr(req, "OK");
+    httpd_resp_sendstr(req, "OK - rebooting");
     xTaskCreate(reboot_task, "reboot_ota", 1024, NULL, 5, NULL);
     return ESP_OK;
 }
@@ -881,7 +905,7 @@ static esp_err_t api_config_post_handler(httpd_req_t *req) {
 /*  http_server_start / stop                                            */
 /* ------------------------------------------------------------------ */
 
-void http_server_start(void) {
+bool http_server_start(void) {
     if (!s_data_mutex) {
         s_data_mutex = xSemaphoreCreateMutex();
     }
@@ -894,7 +918,7 @@ void http_server_start(void) {
 
     if (httpd_start(&server, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Errore avvio server");
-        return;
+        return false;
     }
 
     httpd_uri_t uris[] = {
@@ -914,6 +938,7 @@ void http_server_start(void) {
     }
 
     ESP_LOGI(TAG, "Server HTTP avviato — /monitor  /data  /config  /update");
+    return true;
 }
 
 void http_server_stop(void) {
