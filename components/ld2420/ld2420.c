@@ -1,10 +1,4 @@
 #include "ld2420.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/semphr.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-
 
 static const char *TAG = "LD2420";
 
@@ -260,8 +254,6 @@ static void ld2420_task(void *arg)
             last_dynamic_ts = now;
         }
 
-
-
         vTaskDelay(pdMS_TO_TICKS(50)); // 20 Hz
     }
 }
@@ -395,4 +387,92 @@ esp_err_t ld2420_apply_default_config(void)
 }
 
 
+/**
+ * @brief Stampa tutti i parametri configurati del LD2420
+ */
+void ld2420_print_params(const ld2420_params_t *params)
+{
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "PARAMETRI LD2420");
+    ESP_LOGI(TAG, "========================================");
+    
+    ESP_LOGI(TAG, "Max Gate:           %u (portata ~%um)", 
+             params->max_gate, params->max_gate * 7 / 10);
+    
+    ESP_LOGI(TAG, "Timeout:            %u secondi", params->timeout);
+    ESP_LOGI(TAG, "Output Mode:        %u", params->output_mode);
+    ESP_LOGI(TAG, "Sensitivity Global: %u", params->sensitivity);
+    ESP_LOGI(TAG, "Auto Threshold:     %s", 
+             params->auto_threshold ? "ON" : "OFF");
+    
+    ESP_LOGI(TAG, "----------------------------------------");
+    ESP_LOGI(TAG, "Soglie per GATE (0-15):");
+    ESP_LOGI(TAG, "----------------------------------------");
+    
+    // Stampa intestazione tabella
+    printf("Gate | Distanza  | Static Thr | Motion Thr | Stato\n");
+    printf("-----|-----------|------------|------------|-------\n");
+    
+    for (int i = 0; i < 16; i++) {
+        float distance_m = i * 0.7f;  // ~0.7m per gate (dipende da config)
+        bool enabled = (params->static_threshold[i] > 0 || params->motion_threshold[i] > 0);
+        
+        printf(" %2d  | %4.1f-%4.1fm |    %4u    |    %4u    |  %s\n",
+               i,
+               distance_m,
+               distance_m + 0.7f,
+               params->static_threshold[i],
+               params->motion_threshold[i],
+               enabled ? "ON" : "OFF");
+    }
+    
+    ESP_LOGI(TAG, "========================================");
+}
+
+/**
+ * @brief Stampa mappa gate semplificata (solo gate attivi fino a max_gate)
+ */
+void ld2420_print_gate_map(uint16_t max_gate, 
+                           const uint16_t *static_thr, 
+                           const uint16_t *motion_thr)
+{
+    ESP_LOGI(TAG, "--- Mappa Gate Attivi (0-%u) ---", max_gate);
+    
+    for (uint16_t i = 0; i <= max_gate && i < 16; i++) {
+        char bar_static[21] = {0};
+        char bar_motion[21] = {0};
+        
+        // Crea barre grafiche (0-100 → 0-20 caratteri)
+        int s_len = static_thr[i] / 5;
+        int m_len = motion_thr[i] / 5;
+        
+        for (int j = 0; j < 20; j++) {
+            bar_static[j] = (j < s_len) ? '#' : '.';
+            bar_motion[j] = (j < m_len) ? '#' : '.';
+        }
+        
+        ESP_LOGI(TAG, "Gate[%2u] S:[%s] %3u  M:[%s] %3u", 
+                 i, bar_static, static_thr[i], bar_motion, motion_thr[i]);
+    }
+}
+
+/**
+ * @brief Stampa dati in tempo reale (da chiamare nel loop)
+ */
+void ld2420_print_realtime(bool motion, bool static_presence, 
+                           uint16_t distance, uint16_t energy)
+{
+    static uint32_t last_print = 0;
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    
+    // Stampa ogni 500ms solo se cambiato
+    if (now - last_print < 500) return;
+    last_print = now;
+    
+    const char *status = motion ? "MOVIMENTO" : 
+                         (static_presence ? "STATICO  " : "VUOTO    ");
+    
+    ESP_LOGI(TAG, "[%s] Dist:%3ucm Energia:%4u | M:%d S:%d",
+             status, distance, energy, motion, static_presence);
+}
 

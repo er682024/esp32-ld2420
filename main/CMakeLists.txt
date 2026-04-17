@@ -17,3 +17,7 @@ idf_component_register(
         esp_timer
         mbedtls
 )
+
+# Data/ora di configurazione CMake (quando lanci idf.py build)
+string(TIMESTAMP BUILD_DATE "%Y-%m-%d %H:%M:%S")
+add_definitions(-DBIN_BUILD_DATE="${BUILD_DATE}")

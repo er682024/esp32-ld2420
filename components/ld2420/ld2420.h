@@ -1,9 +1,18 @@
 #pragma once
 
+#include <stdio.h>
+#include <string.h> 
+
 #include "stdbool.h"
 #include "stdint.h"
 #include "driver/gpio.h"
 #include "driver/uart.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "esp_log.h"
+#include "esp_timer.h"
 
 typedef struct {
     gpio_num_t pin_ot1;      // opzionale, può essere -1
@@ -21,13 +30,21 @@ typedef struct {
     uint32_t distance_max;
 } ld2420_state_t;
 
+typedef struct {
+    uint16_t max_gate;
+    uint16_t static_threshold[16];
+    uint16_t motion_threshold[16];
+    uint16_t timeout;
+    uint16_t output_mode;
+    uint16_t sensitivity;
+    bool auto_threshold;
+} ld2420_params_t;
+
 esp_err_t ld2420_init(const ld2420_config_t *cfg);
 void      ld2420_task_start(UBaseType_t priority, uint32_t stack_size);
 
-/* API di lettura stato (thread-safe, snapshot) */
 ld2420_state_t ld2420_get_state(void);
 
-/* Comandi base via UART (per ora solo exit engineering) */
 void ld2420_enter_engineering_mode(void);
 void ld2420_exit_engineering_mode(void);
 esp_err_t ld2420_apply_default_config(void);
@@ -44,5 +61,10 @@ uint16_t ld2420_get_min_distance();
 uint16_t ld2420_get_max_distance();
 uint8_t  ld2420_get_sensitivity();
 uint32_t ld2420_get_uptime_ms();
+
+void ld2420_print_params(const ld2420_params_t *params);
+void ld2420_print_gate_map(uint16_t max_gate, const uint16_t *static_thr, const uint16_t *motion_thr);
+
+
 
 

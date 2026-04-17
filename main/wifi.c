@@ -1,21 +1,4 @@
 #include "wifi.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "esp_mac.h"
-#include "esp_netif.h"
-#include "nvs_flash.h"
-#include "esp_log.h"
-#include "freertos/event_groups.h"
-#include <string.h>
-
-#define WIFI_CONNECTED_BIT BIT0
-#define WIFI_FAIL_BIT      BIT1
-#define MAX_RETRY          5
-
-#define AP_SSID     "ESP32-LD2420"
-#define AP_PASSWORD "12345678"
-#define AP_CHANNEL  1
-#define AP_MAX_CONN 4
 
 bool wifi_connected = false;
 static const char *TAG = "WIFI";
@@ -178,3 +161,30 @@ void wifi_start_ap(void) {
 
     ESP_LOGI(TAG, "AP attivo — connettiti a '%s' e apri http://192.168.4.1", AP_SSID);
 }
+
+void time_sync_init(void) {
+    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
+    tzset();
+
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_setservername(1, "time.cloudflare.com");
+    esp_sntp_setservername(2, "time.google.com");
+    esp_sntp_init();
+
+    int retry = 0;
+    const int SNTP_MAX_RETRY = 60;
+    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET) {
+        ESP_LOGI("NTP", "Attesa sincronizzazione... (%d/%d)", ++retry, SNTP_MAX_RETRY);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (retry >= SNTP_MAX_RETRY) {
+            ESP_LOGW("NTP", "Timeout — ri-inizializzo SNTP e riprovo tra 30s");
+            esp_sntp_stop();
+            vTaskDelay(pdMS_TO_TICKS(30000));
+            esp_sntp_init();
+            retry = 0;
+        }
+    }
+    ESP_LOGI("NTP", "Ora sincronizzata");
+}
+
