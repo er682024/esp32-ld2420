@@ -124,9 +124,11 @@ void wifi_connect(const char *ssid, const char *password) {
         }
 
         /* Connessione fallita: ferma il driver e riprova dopo 30 s. */
-        ESP_LOGE(TAG, "Connessione fallita, riprovo tra 30 s...");
+//        ESP_LOGE(TAG, "Connessione fallita, riprovo tra 30 s...");
         esp_wifi_stop();
-        vTaskDelay(pdMS_TO_TICKS(30000));
+	wifi_connected = false;
+//        vTaskDelay(pdMS_TO_TICKS(30000));
+	return;
     }
 }
 

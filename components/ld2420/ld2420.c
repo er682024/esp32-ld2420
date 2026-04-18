@@ -373,7 +373,7 @@ esp_err_t ld2420_apply_default_config(void)
     }
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    if (ld2420_set_static_sensitivity(5) != ESP_OK) {
+    if (ld2420_set_static_sensitivity(9) != ESP_OK) {
         ESP_LOGE(TAG, "Error setting static sensitivity");
         return ESP_FAIL;
     }
