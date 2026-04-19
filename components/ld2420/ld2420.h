@@ -24,8 +24,8 @@ typedef struct {
 
 typedef struct {
     bool presence;           // presenza complessiva
-    bool motion;             // movimento (OT2)
-    bool static_presence;    // presenza statica (OT1)
+    bool motion;             // movimento (OT1)
+    bool static_presence;    // presenza statica (OT2)
     uint32_t distance_min;
     uint32_t distance_max;
 } ld2420_state_t;
@@ -42,6 +42,9 @@ typedef struct {
 
 esp_err_t ld2420_init(const ld2420_config_t *cfg);
 void      ld2420_task_start(UBaseType_t priority, uint32_t stack_size);
+void ld2420_gpio_init(void);
+void ld2420_uart_init(void);
+void ld2420_task(void *arg);
 
 ld2420_state_t ld2420_get_state(void);
 
@@ -64,6 +67,7 @@ uint32_t ld2420_get_uptime_ms();
 
 void ld2420_print_params(const ld2420_params_t *params);
 void ld2420_print_gate_map(uint16_t max_gate, const uint16_t *static_thr, const uint16_t *motion_thr);
+
 
 
 

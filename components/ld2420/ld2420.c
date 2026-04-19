@@ -20,9 +20,7 @@ static uint16_t cfg_max_dist = 600;
 static uint8_t  cfg_sensitivity = 5;
 
 
-static void ld2420_gpio_init(void);
-static void ld2420_uart_init(void);
-static void ld2420_task(void *arg);
+
 
 // ─── Frame helper ───────────────────────────────────────────────────
 // Header: FD FC FB FA | len_L len_H | cmd_L cmd_H | data | 04 03 02 01
@@ -126,7 +124,7 @@ void ld2420_task_start(UBaseType_t priority, uint32_t stack_size)
 }
 
 /* GPIO: OT1 / OT2 come input */
-static void ld2420_gpio_init(void)
+void ld2420_gpio_init(void)
 {
     gpio_config_t io_conf = {
         .mode = GPIO_MODE_INPUT,
@@ -147,7 +145,7 @@ static void ld2420_gpio_init(void)
 }
 
 /* UART: solo TX per comandi verso LD2420 (RX del modulo) */
-static void ld2420_uart_init(void)
+void ld2420_uart_init(void)
 {
     uart_config_t uart_config = {
         .baud_rate = s_cfg.uart_baud,
@@ -183,7 +181,7 @@ void ld2420_enter_engineering_mode(void)
 */
 
 /* Task: legge OT1/OT2 e aggiorna stato */
-static void ld2420_task(void *arg)
+void ld2420_task(void *arg)
 {
     bool last_ot1 = false;
     bool last_ot2 = false;
@@ -212,17 +210,26 @@ static void ld2420_task(void *arg)
 
         /* log solo su cambiamento per non spammare */
         if (ot2 && !last_ot2) {
-            ESP_LOGI(TAG, "OT2 presence detected");
+//            ESP_LOGI(TAG, "OT2 static presence detected");
+            ESP_LOGI(TAG, "OT1=%d OT2=%d -> presence=%d motion=%d static_presence=%d -> STATIC PRESENCE!",
+                ot1, ot2, presence, motion, static_p);
+
         }
         if (!ot2 && last_ot2) {
-            ESP_LOGI(TAG, "OT2 cleared");
+//            ESP_LOGI(TAG, "OT2 static cleared");
+            ESP_LOGI(TAG, "OT1=%d OT2=%d -> presence=%d motion=%d static_presence=%d -> NO STATIC PRESENCE!",
+                ot1, ot2, presence, motion, static_p);
         }
         if (s_cfg.pin_ot1 >= 0) {
             if (ot1 && !last_ot1) {
-                ESP_LOGI(TAG, "OT1 static presence detected");
+                // ESP_LOGI(TAG, "OT1 motion detected");
+                ESP_LOGI(TAG, "OT1=%d OT2=%d -> presence=%d motion=%d static_presence=%d -> MOTION!",
+                    ot1, ot2, presence, motion, static_p);
             }
             if (!ot1 && last_ot1) {
-                ESP_LOGI(TAG, "OT1 static cleared");
+                // ESP_LOGI(TAG, "OT1 motion cleared");
+                ESP_LOGI(TAG, "OT1=%d OT2=%d -> presence=%d motion=%d static_presence=%d -> NO MOTION!",
+                    ot1, ot2, presence, motion, static_p);
             }
         }
 
@@ -246,11 +253,11 @@ static void ld2420_task(void *arg)
             last_motion_ts = now;
         }
 
-        if (ot1) {
+        if (ot2) {
             last_static_ts = now;
         }
 
-        if (ot2) {
+        if (ot1) {
             last_dynamic_ts = now;
         }
 
@@ -358,7 +365,7 @@ esp_err_t ld2420_apply_default_config(void)
 
     // Range consigliato per evitare falsi positivi
     uint16_t min_dist = 100;
-    uint16_t max_dist = 300;
+    uint16_t max_dist = 200;
 
     if (ld2420_set_range(min_dist, max_dist) != ESP_OK) {
         ESP_LOGE(TAG, "Error setting range");
@@ -373,8 +380,9 @@ esp_err_t ld2420_apply_default_config(void)
     }
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    if (ld2420_set_static_sensitivity(9) != ESP_OK) {
+    if (ld2420_set_static_sensitivity(80) != ESP_OK) {
         ESP_LOGE(TAG, "Error setting static sensitivity");
+        vTaskDelay(pdMS_TO_TICKS(5000));
         return ESP_FAIL;
     }
     vTaskDelay(pdMS_TO_TICKS(50));

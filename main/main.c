@@ -73,7 +73,7 @@ void app_main(void)
     }
 
     while (1) {
-        putchar('.');
+        // putchar('.');
         ld2420_print_status_line();
         fflush(stdout);
         vTaskDelay(pdMS_TO_TICKS(500));
@@ -82,6 +82,7 @@ void app_main(void)
 
 void ld2420_print_status_line(void)
 {
+    return; // --- IGNORE ---
     ld2420_state_t s = ld2420_get_state();
 
     /* --- Lettura info WiFi --- */
